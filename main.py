@@ -52,7 +52,7 @@ metrics["kappa"] = metrics["kappa"] / 2 + 0.5
 params = pd.get_dummies(params)
 
 # Get data
-meta_X = pd.concat([params, metas], axis=1, sort=False).drop(["Dimensionality", "AutoCorrelation"], axis=1)
+meta_X = pd.concat([params, metas], axis=1, sort=False).drop(["Dimensionality"], axis=1)
 surr_X = params
 y = np.array(metrics["predictive_accuracy"])
 
@@ -63,7 +63,7 @@ surr_estimator = LGBMRegressor(n_estimators=100, num_leaves=8, objective="quanti
 logo = LeaveOneGroupOut()
 
 result = {}
-for alpha in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
+for alpha in [1.0]:
     result[alpha] = []
     for train_index, test_index in tqdm(logo.split(surr_X, y, groups)):
 
@@ -83,13 +83,15 @@ for alpha in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
         observed_y = []
         observed_i = []
         optimum = np.max(y[test_index])
-        for iteration in range(150):
+        for iteration in range(1, 151):
 
             surr_predictions = np.zeros_like(test_index)
-            if iteration > 1:
+            if iteration > 2 and alpha < 1:
                 surr_estimator.fit(np.array(observed_X), np.array(observed_y))
                 surr_predictions = surr_estimator.predict(meta_X.iloc[test_index])
 
+            # alpha == 0: Only surrogate predictions
+            # alpha == 1: Only meta-model predictions
             scores = alpha**iteration * meta_predictions + (1 - alpha**iteration) * surr_predictions
             scores[observed_i] = -10
 
