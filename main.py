@@ -63,7 +63,7 @@ surr_estimator = LGBMRegressor(n_estimators=100, num_leaves=8, objective="quanti
 logo = LeaveOneGroupOut()
 
 result = {}
-for alpha in [1.0]:
+for alpha in [0.5]:
     result[alpha] = []
     for train_index, test_index in tqdm(logo.split(surr_X, y, groups)):
 
@@ -75,8 +75,14 @@ for alpha in [1.0]:
             y_converted[indices] = StandardScaler().fit_transform(X=selection.reshape(-1, 1)).reshape(-1)
 
         # Train meta-estimator
-        meta_estimator.fit(meta_X.iloc[train_index], y_converted[train_index])
-        meta_predictions = meta_estimator.predict(meta_X.iloc[test_index])
+        if alpha > 0:
+            meta_estimator.fit(meta_X.iloc[train_index], y_converted[train_index])
+            meta_predictions = meta_estimator.predict(meta_X.iloc[test_index])
+        else:
+            meta_predictions = np.zeros_like(test_index)
+        mean = np.mean(y[train_index])
+        std = np.std(y[train_index])
+        meta_predictions = meta_predictions * std + mean
 
         # Do Blended BO for 250 iterations
         observed_X = []
@@ -85,14 +91,16 @@ for alpha in [1.0]:
         optimum = np.max(y[test_index])
         for iteration in range(1, 151):
 
+            # We need to have observed at least 3 items for the model to be able to predict
             surr_predictions = np.zeros_like(test_index)
-            if iteration > 2 and alpha < 1:
+            if iteration > 3 and alpha < 1:
                 surr_estimator.fit(np.array(observed_X), np.array(observed_y))
                 surr_predictions = surr_estimator.predict(meta_X.iloc[test_index])
 
             # alpha == 0: Only surrogate predictions
             # alpha == 1: Only meta-model predictions
-            scores = alpha**iteration * meta_predictions + (1 - alpha**iteration) * surr_predictions
+            corrected_iteration = np.maximum(1, iteration - 3)
+            scores = alpha**corrected_iteration * meta_predictions + (1 - alpha**corrected_iteration) * surr_predictions
             scores[observed_i] = -10
 
             index = np.argmax(scores)
@@ -100,4 +108,4 @@ for alpha in [1.0]:
             observed_y.append(y[test_index][index])
             observed_i.append(index)
         result[alpha].append((np.array(observed_y) / optimum).tolist())
-        store_json(result, "bo.json")
+        store_json(result, "bo-0.5-double-corrected.json")
