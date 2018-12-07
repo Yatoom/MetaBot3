@@ -63,7 +63,7 @@ surr_estimator = LGBMRegressor(n_estimators=100, num_leaves=8, objective="quanti
 logo = LeaveOneGroupOut()
 
 result = {}
-for alpha in [1.0]:
+for alpha in [0, 0.5, 1]:
     result[alpha] = []
     for train_index, test_index in tqdm(logo.split(surr_X, y, groups)):
 
@@ -86,7 +86,7 @@ for alpha in [1.0]:
 
         optimum = np.max(y[test_index])
         if alpha == 1:
-            best_indices = np.argsort(meta_predictions)[:250]
+            best_indices = np.argsort(meta_predictions)[-250:][::-1]
             observed_y = y[test_index][best_indices]
         else:
             # Do Blended BO for 250 iterations
@@ -109,8 +109,8 @@ for alpha in [1.0]:
                 scores[observed_i] = -10
 
                 index = np.argmax(scores)
-                observed_X.append(meta_X.iloc[index])
+                observed_X.append(meta_X.iloc[test_index].iloc[index])
                 observed_y.append(y[test_index][index])
                 observed_i.append(index)
         result[alpha].append((np.array(observed_y) / optimum).tolist())
-        store_json(result, "bo-250-1.json")
+        store_json(result, "bo-250-with-fixes.json")
