@@ -9,7 +9,7 @@ from scipy.stats import rankdata, kendalltau
 from sklearn.dummy import DummyRegressor
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import LeaveOneGroupOut
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
@@ -22,18 +22,26 @@ def store_json(data, filename):
         json.dump(data, f, indent=4, sort_keys=True)
 
 # Settings
-flow_id = 8315
+flow_id = 6969
 cache_dir = "cache"
 results_dir = "results"
 print(os.path.realpath(__file__))
 
 # Get metafeatures
 metafeatures = pd.read_csv(os.path.join(cache_dir, "metafeatures2.csv"), index_col=0)
+metafeatures = metafeatures.dropna()
 
 # Load files
 groups = pd.read_json(os.path.join(cache_dir, f"{flow_id}_groups.json"))[0].sort_index()
 params = pd.read_json(os.path.join(cache_dir, f"{flow_id}_params.json")).sort_index()
 metrics = pd.read_json(os.path.join(cache_dir, f"{flow_id}_metrics.json")).sort_index()
+
+# Selection
+indices = np.any([i == groups for i in metafeatures.index], axis=0)
+groups = groups.iloc[indices].reset_index(drop=True)
+params = params.iloc[indices].reset_index(drop=True)
+metrics = metrics.iloc[indices].reset_index(drop=True)
+
 metas = metafeatures.loc[groups].reset_index(drop=True)
 
 # Sorting
@@ -63,7 +71,7 @@ surr_estimator = LGBMRegressor(n_estimators=100, num_leaves=8, objective="quanti
 logo = LeaveOneGroupOut()
 
 result = {}
-for alpha in [0, 0.5]:
+for alpha in [0, 1]:
     result[alpha] = []
     for train_index, test_index in tqdm(logo.split(surr_X, y, groups)):
 
@@ -78,9 +86,9 @@ for alpha in [0, 0.5]:
         if alpha > 0:
             meta_estimator.fit(meta_X.iloc[train_index], y_converted[train_index])
             meta_predictions = meta_estimator.predict(meta_X.iloc[test_index])
-            mean = np.mean(y[train_index])
-            std = np.std(y[train_index])
-            meta_predictions = meta_predictions * std + mean
+            # mean = np.mean(y[train_index])
+            # std = np.std(y[train_index])
+            # meta_predictions = meta_predictions * std + mean
         else:
             meta_predictions = np.zeros_like(test_index)
 
@@ -101,16 +109,19 @@ for alpha in [0, 0.5]:
                 if iteration > 2 and alpha < 1:
                     surr_estimator.fit(np.array(observed_X), np.array(observed_y))
                     surr_predictions = surr_estimator.predict(surr_X.iloc[test_index])
+                # print(iteration, "\t", np.std(surr_predictions), "\t", np.std(meta_predictions))
 
                 # alpha == 0: Only surrogate predictions
                 # alpha == 1: Only meta-model predictions
                 corrected_iteration = np.maximum(1, iteration - 2)
-                scores = alpha**corrected_iteration * meta_predictions + (1 - alpha**corrected_iteration) * surr_predictions
-                scores[observed_i] = -10
+                scaled_meta_predictions = MinMaxScaler().fit_transform(meta_predictions.reshape(-1, 1)).reshape(-1)
+                scaled_surr_predictions = MinMaxScaler().fit_transform(surr_predictions.reshape(-1, 1)).reshape(-1)
+                scores = alpha**corrected_iteration * scaled_meta_predictions + (1 - alpha**corrected_iteration) * scaled_surr_predictions
+                scores[observed_i] = -100
 
                 index = np.argmax(scores)
                 observed_X.append(surr_X.iloc[test_index].iloc[index])
                 observed_y.append(y[test_index][index])
                 observed_i.append(index)
         result[alpha].append((np.array(observed_y) / optimum).tolist())
-        store_json(result, "bo-250-with-more-fixes.json")
+        store_json(result, "bo-6969-gg.json")

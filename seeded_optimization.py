@@ -22,18 +22,26 @@ def store_json(data, filename):
         json.dump(data, f, indent=4, sort_keys=True)
 
 # Settings
-flow_id = 8315
+flow_id = 6969
 cache_dir = "cache"
 results_dir = "results"
 print(os.path.realpath(__file__))
 
 # Get metafeatures
 metafeatures = pd.read_csv(os.path.join(cache_dir, "metafeatures2.csv"), index_col=0)
+metafeatures = metafeatures.dropna()
 
 # Load files
 groups = pd.read_json(os.path.join(cache_dir, f"{flow_id}_groups.json"))[0].sort_index()
 params = pd.read_json(os.path.join(cache_dir, f"{flow_id}_params.json")).sort_index()
 metrics = pd.read_json(os.path.join(cache_dir, f"{flow_id}_metrics.json")).sort_index()
+
+# Selection
+indices = np.any([i == groups for i in metafeatures.index], axis=0)
+groups = groups.iloc[indices].reset_index(drop=True)
+params = params.iloc[indices].reset_index(drop=True)
+metrics = metrics.iloc[indices].reset_index(drop=True)
+
 metas = metafeatures.loc[groups].reset_index(drop=True)
 
 # Sorting
@@ -63,7 +71,7 @@ surr_estimator = LGBMRegressor(n_estimators=100, num_leaves=8, objective="quanti
 logo = LeaveOneGroupOut()
 
 result = {}
-for seed_num in [5, 10, 15]:
+for seed_num in [5]:
     result[seed_num] = []
     for train_index, test_index in tqdm(logo.split(surr_X, y, groups)):
 
@@ -86,8 +94,10 @@ for seed_num in [5, 10, 15]:
         observed_i = best_n.tolist()
 
         for iteration in range(0, 250 - seed_num):
-            surr_estimator.fit(np.array(observed_X), np.array(observed_y))
-            surr_predictions = surr_estimator.predict(surr_X.iloc[test_index])
+            surr_predictions = np.zeros_like(test_index)
+            if len(observed_X) >= 3:
+                surr_estimator.fit(np.array(observed_X), np.array(observed_y))
+                surr_predictions = surr_estimator.predict(surr_X.iloc[test_index])
             surr_predictions[observed_i] = -10
             index = np.argmax(surr_predictions)
 
@@ -96,4 +106,4 @@ for seed_num in [5, 10, 15]:
             observed_i.append(index)
 
         result[seed_num].append((np.array(observed_y) / optimum).tolist())
-        store_json(result, "seeded-optimization.json")
+        store_json(result, "seeded-6969-gg.json")
