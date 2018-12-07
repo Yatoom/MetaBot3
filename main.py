@@ -63,7 +63,7 @@ surr_estimator = LGBMRegressor(n_estimators=100, num_leaves=8, objective="quanti
 logo = LeaveOneGroupOut()
 
 result = {}
-for alpha in [0, 0.5, 1]:
+for alpha in [0, 0.5]:
     result[alpha] = []
     for train_index, test_index in tqdm(logo.split(surr_X, y, groups)):
 
@@ -100,7 +100,7 @@ for alpha in [0, 0.5, 1]:
                 surr_predictions = np.zeros_like(test_index)
                 if iteration > 2 and alpha < 1:
                     surr_estimator.fit(np.array(observed_X), np.array(observed_y))
-                    surr_predictions = surr_estimator.predict(meta_X.iloc[test_index])
+                    surr_predictions = surr_estimator.predict(surr_X.iloc[test_index])
 
                 # alpha == 0: Only surrogate predictions
                 # alpha == 1: Only meta-model predictions
@@ -109,8 +109,8 @@ for alpha in [0, 0.5, 1]:
                 scores[observed_i] = -10
 
                 index = np.argmax(scores)
-                observed_X.append(meta_X.iloc[test_index].iloc[index])
+                observed_X.append(surr_X.iloc[test_index].iloc[index])
                 observed_y.append(y[test_index][index])
                 observed_i.append(index)
         result[alpha].append((np.array(observed_y) / optimum).tolist())
-        store_json(result, "bo-250-with-fixes.json")
+        store_json(result, "bo-250-with-more-fixes.json")
