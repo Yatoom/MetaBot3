@@ -22,7 +22,7 @@ def store_json(data, filename):
         json.dump(data, f, indent=4, sort_keys=True)
 
 # Settings
-flow_id = 8315
+flow_id = 6969
 cache_dir = "cache"
 results_dir = "results"
 print(os.path.realpath(__file__))
@@ -62,16 +62,11 @@ surr_estimator = LGBMRegressor(n_estimators=100, num_leaves=8, objective="quanti
 
 logo = LeaveOneGroupOut()
 
-fractions = [0.75, 0.5, 0.25]
-powers = [1, 2, 3, 4, 5]
-result = {}
-
-# Fill up results
-for fraction in fractions:
-    result[f"select_from_top {fraction}"] = []
-
-for power in powers:
-    result[f"select_with_weights {power}"] = []
+result = {
+    "randomized 1": [],
+    "randomized 2": [],
+    "randomized 3": [],
+}
 
 for train_index, test_index in tqdm(logo.split(surr_X, y, groups)):
 
@@ -87,33 +82,58 @@ for train_index, test_index in tqdm(logo.split(surr_X, y, groups)):
         selection = y[indices]
         y_converted[indices] = StandardScaler().fit_transform(X=selection.reshape(-1, 1)).reshape(-1)
 
+    # Completely random
+    observed_ys = []
+    for _ in range(10000):
+        observed_ys.append(np.random.choice(y[test_index], 250, replace=False))
+    observed_y = np.mean(np.maximum.accumulate(observed_ys, axis=1), axis=0)
+    result["randomized 1"].append((np.array(observed_y) / optimum).tolist())
+
+    observed_ys = []
+    for _ in range(10000):
+        chosen = np.random.choice(y[test_index], 500, replace=False)
+        chosen = np.max(np.split(chosen, 2), axis=0)
+        observed_ys.append(chosen)
+    observed_y = np.mean(np.maximum.accumulate(observed_ys, axis=1), axis=0)
+    result["randomized 2"].append((np.array(observed_y) / optimum).tolist())
+
+    observed_ys = []
+    for _ in range(10000):
+        chosen = np.random.choice(y[test_index], 750, replace=False)
+        chosen = np.max(np.split(chosen, 3), axis=0)
+        observed_ys.append(chosen)
+    observed_y = np.mean(np.maximum.accumulate(observed_ys, axis=1), axis=0)
+    result["randomized 3"].append((np.array(observed_y) / optimum).tolist())
+
     # Train estimator
-    meta_estimator.fit(meta_X.iloc[train_index], y_converted[train_index])
-    meta_predictions = meta_estimator.predict(meta_X.iloc[test_index])
+    # meta_estimator.fit(meta_X.iloc[train_index], y_converted[train_index])
+    # meta_predictions = meta_estimator.predict(meta_X.iloc[test_index])
 
-    # Select randomly from top 75%, 50% and 25%
-    for fraction in fractions:
-        number = int(len(meta_predictions) * 1/4)
-        best_indices = np.argsort(meta_predictions)[-number:][::-1]
 
-        observed_ys = []
-        for _ in range(100):
-            np.random.shuffle(best_indices)
-            observed_y = y[test_index][best_indices[:250]]
-            observed_ys.append(observed_y)
-        observed_y = np.mean(observed_ys, axis=0)
-        result[f"select_from_top {fraction}"].append((np.array(observed_y) / optimum).tolist())
 
-    # Select with weights
-    for power in powers:
-        scaled = (meta_predictions - np.min(meta_predictions))/(np.max(meta_predictions) - np.min(meta_predictions))
-        weight = scaled ** power
-        weight /= weight.sum()
-        observed_ys = []
-        for _ in range(100):
-            observed_y = np.random.choice(y[test_index], size=250, replace=False, p=weight)
-            observed_ys.append(observed_y)
-        observed_y = np.mean(observed_ys, axis=0)
-        result[f"select_with_weights {power}"].append((np.array(observed_y) / optimum).tolist())
+    # # Select randomly from top 75%, 50% and 25%
+    # for fraction in fractions:
+    #     number = int(len(meta_predictions) * 1/4)
+    #     best_indices = np.argsort(meta_predictions)[-number:][::-1]
+    #
+    #     observed_ys = []
+    #     for _ in range(100):
+    #         np.random.shuffle(best_indices)
+    #         observed_y = y[test_index][best_indices[:250]]
+    #         observed_ys.append(observed_y)
+    #     observed_y = np.mean(observed_ys, axis=0)
+    #     result[f"select_from_top {fraction}"].append((np.array(observed_y) / optimum).tolist())
+    #
+    # # Select with weights
+    # for power in powers:
+    #     scaled = (meta_predictions - np.min(meta_predictions))/(np.max(meta_predictions) - np.min(meta_predictions))
+    #     weight = scaled ** power
+    #     weight /= weight.sum()
+    #     observed_ys = []
+    #     for _ in range(100):
+    #         observed_y = np.random.choice(y[test_index], size=250, replace=False, p=weight)
+    #         observed_ys.append(observed_y)
+    #     observed_y = np.mean(observed_ys, axis=0)
+    #     result[f"select_with_weights {power}"].append((np.array(observed_y) / optimum).tolist())
 
-    store_json(result, "simple-methods.json")
+    store_json(result, "randomized-6969.json")
