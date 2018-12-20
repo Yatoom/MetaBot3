@@ -29,11 +29,21 @@ print(os.path.realpath(__file__))
 
 # Get metafeatures
 metafeatures = pd.read_csv(os.path.join(cache_dir, "metafeatures2.csv"), index_col=0)
+# metafeatures = metafeatures.dropna()
+metafeatures = metafeatures[~metafeatures["DecisionStumpAUC"].isna()]
+keep_groups = metafeatures.index.tolist()
 
 # Load files
 groups = pd.read_json(os.path.join(cache_dir, f"{flow_id}_groups.json"))[0].sort_index()
 params = pd.read_json(os.path.join(cache_dir, f"{flow_id}_params.json")).sort_index()
 metrics = pd.read_json(os.path.join(cache_dir, f"{flow_id}_metrics.json")).sort_index()
+
+# Selection
+indices = np.any([i == groups for i in metafeatures.index], axis=0)
+groups = groups.iloc[indices].reset_index(drop=True)
+params = params.iloc[indices].reset_index(drop=True)
+metrics = metrics.iloc[indices].reset_index(drop=True)
+
 metas = metafeatures.loc[groups].reset_index(drop=True)
 
 # Sorting
@@ -63,7 +73,7 @@ surr_estimator = LGBMRegressor(n_estimators=100, num_leaves=8, objective="quanti
 logo = LeaveOneGroupOut()
 
 result = {}
-for alpha in [0.5]:
+for alpha in [0.1]:
     result[alpha] = []
     for train_index, test_index in tqdm(logo.split(surr_X, y, groups)):
 
@@ -103,12 +113,10 @@ for alpha in [0.5]:
                     surr_predictions = surr_estimator.predict(surr_X.iloc[test_index])
                 # print(iteration, "\t", np.std(surr_predictions), "\t", np.std(meta_predictions))
 
-                # alpha == 0: Only surrogate predictions
-                # alpha == 1: Only meta-model predictions
-                corrected_iteration = np.maximum(1, iteration - 2)
-                scaled_meta_predictions = MinMaxScaler().fit_transform(meta_predictions.reshape(-1, 1)).reshape(-1)
-                scaled_surr_predictions = MinMaxScaler().fit_transform(surr_predictions.reshape(-1, 1)).reshape(-1)
-                scores = alpha**corrected_iteration * scaled_meta_predictions + (1 - alpha**corrected_iteration) * scaled_surr_predictions
+                if np.std(surr_predictions) == 0:
+                    scores = meta_predictions
+                else:
+                    scores = surr_predictions
                 scores[observed_i] = -100
 
                 index = np.argmax(scores)
@@ -116,4 +124,4 @@ for alpha in [0.5]:
                 observed_y.append(y[test_index][index])
                 observed_i.append(index)
         result[alpha].append((np.array(observed_y) / optimum).tolist())
-        store_json(result, "bo-6969-scaled-2.json")
+        store_json(result, "6969-bo-dropped-gap-filler.json")

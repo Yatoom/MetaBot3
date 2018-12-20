@@ -5,11 +5,12 @@ import warnings
 import numpy as np
 import pandas as pd
 from lightgbm import LGBMRanker, LGBMRegressor, plot_importance
-from scipy.stats import rankdata, kendalltau
+from scipy.stats import rankdata, kendalltau, norm
 from sklearn.dummy import DummyRegressor
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from smac.epm.rf_with_instances import RandomForestWithInstances
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
@@ -29,7 +30,9 @@ print(os.path.realpath(__file__))
 
 # Get metafeatures
 metafeatures = pd.read_csv(os.path.join(cache_dir, "metafeatures2.csv"), index_col=0)
-metafeatures = metafeatures.dropna()
+# metafeatures = metafeatures.dropna()
+metafeatures = metafeatures[~metafeatures["DecisionStumpAUC"].isna()]
+keep_groups = metafeatures.index.tolist()
 
 # Load files
 groups = pd.read_json(os.path.join(cache_dir, f"{flow_id}_groups.json"))[0].sort_index()
@@ -66,12 +69,17 @@ y = np.array(metrics["predictive_accuracy"])
 
 # Estimators
 meta_estimator = LGBMRegressor(n_estimators=500, num_leaves=16, learning_rate=0.05, min_child_samples=1, verbose=-1)
-surr_estimator = LGBMRegressor(n_estimators=100, num_leaves=8, objective="quantile", alpha=0.9, min_child_samples=1, min_data_in_bin=1, verbose=-1)
+# surr_estimator = LGBMRegressor(n_estimators=100, num_leaves=8, objective="quantile", alpha=0.9, min_child_samples=1, min_data_in_bin=1, verbose=-1)
+bounds = [(np.min(surr_X[i]), np.max(surr_X[i])) for i in surr_X.columns]
+bounds = np.array(bounds).astype(float)
+types = np.zeros_like(bounds).astype(int)
+surr_estimator = RandomForestWithInstances(bounds=bounds, types=types)
+
 
 logo = LeaveOneGroupOut()
 
 result = {}
-for alpha in [0, 1]:
+for alpha in [0, 0.5, 1]:
     result[alpha] = []
     for train_index, test_index in tqdm(logo.split(surr_X, y, groups)):
 
@@ -102,20 +110,38 @@ for alpha in [0, 1]:
             observed_y = []
             observed_i = []
 
+            surpassed = None
             for iteration in range(0, 250):
 
                 # We need to have observed at least 3 items for the model to be able to predict
                 surr_predictions = np.zeros_like(test_index)
                 if iteration > 2 and alpha < 1:
-                    surr_estimator.fit(np.array(observed_X), np.array(observed_y))
-                    surr_predictions = surr_estimator.predict(surr_X.iloc[test_index])
+                    surr_estimator.train(np.array(observed_X).astype(float), np.array(observed_y))
+                    mu, var = surr_estimator.predict(np.array(surr_X.iloc[test_index]).astype(float))
+                    mu = mu.reshape(-1)
+                    var = var.reshape(-1)
+                    sigma = np.sqrt(var)
+                    diff = mu - np.max(observed_y)
+                    Z = diff / sigma
+                    ei = diff * norm.cdf(Z) + sigma * norm.pdf(Z)
+                    surr_predictions = ei
+
+                    # surr_predictions = surr_estimator.predict(np.array(surr_X.iloc[test_index]).astype(float))
                 # print(iteration, "\t", np.std(surr_predictions), "\t", np.std(meta_predictions))
+
+                m_corr, m_pvalue = kendalltau(meta_predictions, y[test_index])
+                s_corr, s_pvalue = kendalltau(surr_predictions, y[test_index])
+
+                if s_corr > m_corr:
+                    surpassed = iteration if surpassed is None else surpassed
 
                 # alpha == 0: Only surrogate predictions
                 # alpha == 1: Only meta-model predictions
                 corrected_iteration = np.maximum(1, iteration - 2)
-                scaled_meta_predictions = MinMaxScaler().fit_transform(meta_predictions.reshape(-1, 1)).reshape(-1)
-                scaled_surr_predictions = MinMaxScaler().fit_transform(surr_predictions.reshape(-1, 1)).reshape(-1)
+                # scaled_meta_predictions = MinMaxScaler().fit_transform(meta_predictions.reshape(-1, 1)).reshape(-1)
+                # scaled_surr_predictions = MinMaxScaler().fit_transform(surr_predictions.reshape(-1, 1)).reshape(-1)
+                scaled_meta_predictions = meta_predictions
+                scaled_surr_predictions = StandardScaler().fit_transform(surr_predictions.reshape(-1, 1)).reshape(-1)
                 scores = alpha**corrected_iteration * scaled_meta_predictions + (1 - alpha**corrected_iteration) * scaled_surr_predictions
                 scores[observed_i] = -100
 
@@ -123,5 +149,6 @@ for alpha in [0, 1]:
                 observed_X.append(surr_X.iloc[test_index].iloc[index])
                 observed_y.append(y[test_index][index])
                 observed_i.append(index)
+            print(surpassed)
         result[alpha].append((np.array(observed_y) / optimum).tolist())
-        store_json(result, "bo-6969-gg.json")
+        store_json(result, "6969-lgbm.json")
